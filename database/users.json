@@ -1,0 +1,17 @@
+{
+    "alice": {
+        "password": "$2b$12$8I2UF7U.4rhmhueE9fDX2ejEWRd4xEAZLOT5YyvzP.qWw1svmmvhy",
+        "created_at": "2025-12-11 20:51:00",
+        "face_registered": false
+    },
+    "bob": {
+        "password": "$2b$12$eSl4z1MbLcvWMFERv8rhceV7O9FPDpnJS6tujmGvDpvLlO62.Gepy",
+        "created_at": "2025-12-11 20:51:01",
+        "face_registered": false
+    },
+    "abdou": {
+        "password": "$2b$12$ex1Z.lTDT.ihjkMNLG/N7./Nyffc.LvdT4/dkltfHot04koLJ0.Ay",
+        "created_at": "2025-12-11 20:53:08",
+        "face_registered": false
+    }
+}

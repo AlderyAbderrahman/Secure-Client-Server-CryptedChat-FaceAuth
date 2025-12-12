@@ -1,0 +1,12 @@
+{
+    "abdou": {
+        "user_id": 1,
+        "num_samples": 1,
+        "registered_date": "2025-12-12 01:21:45"
+    },
+    "alice": {
+        "user_id": 2,
+        "num_samples": 1,
+        "registered_date": "2025-12-12 01:22:17"
+    }
+}
