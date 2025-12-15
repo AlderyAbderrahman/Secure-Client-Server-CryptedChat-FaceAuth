@@ -13,5 +13,10 @@
         "password": "$2b$12$ex1Z.lTDT.ihjkMNLG/N7./Nyffc.LvdT4/dkltfHot04koLJ0.Ay",
         "created_at": "2025-12-11 20:53:08",
         "face_registered": false
+    },
+    "ayman": {
+        "password": "$2b$12$SHF/AZiemXoVuz8c8.BTbOnw59d0jIgPT6PQWZT4xoT4rSawehF.S",
+        "created_at": "2025-12-15 13:12:49",
+        "face_registered": false
     }
 }

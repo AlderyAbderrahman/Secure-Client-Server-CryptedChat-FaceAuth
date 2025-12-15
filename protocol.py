@@ -8,13 +8,13 @@ from ciphers import (
 )
 
 # ============================================================================
-# MESSAGE PROTOCOL
+# MESSAGE PROTOCOL - END-TO-END ENCRYPTION VERSION
 # ============================================================================
 
 class MessageType:
     """Message type constants"""
     LOGIN = "login"
-    LOGIN_FACE = "login_face"  # ← ADD THIS
+    LOGIN_FACE = "login_face"
     REGISTER = "register"
     MESSAGE = "message"
     BROADCAST = "broadcast"
@@ -59,7 +59,7 @@ def parse_message(json_string):
 
 
 # ============================================================================
-# CIPHER PROTOCOL
+# CIPHER PROTOCOL - NO KEY TRANSMISSION
 # ============================================================================
 
 def encrypt_message(plaintext, cipher_type, key):
@@ -129,53 +129,33 @@ def decrypt_message(ciphertext, cipher_type, key):
 
 
 # ============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS - REMOVED KEY FORMATTING (NOT NEEDED FOR E2E)
 # ============================================================================
 
 def format_cipher_key(cipher_type, key):
     """
-    Format cipher key for transmission.
+    Format cipher key for LOCAL display only (not transmission).
     
     Args:
         cipher_type: Type of cipher
         key: The key object
     
     Returns:
-        JSON-serializable key
+        String representation of key
     """
     if cipher_type == "substitution":
-        # Convert dictionary to list of tuples
-        return [[k, v] for k, v in key.items()]
+        # Show first few mappings
+        items = list(key.items())[:5]
+        preview = ", ".join([f"{k}→{v}" for k, v in items])
+        return f"Substitution map: {preview}..."
     
     elif cipher_type == "rsa":
-        # Convert tuple to list
-        return list(key)
+        # Show public key info
+        e, n = key
+        return f"RSA (e={e}, n={n.bit_length()} bits)"
     
     else:
-        return key
-
-
-def parse_cipher_key(cipher_type, key_data):
-    """
-    Parse received cipher key.
-    
-    Args:
-        cipher_type: Type of cipher
-        key_data: Received key data
-    
-    Returns:
-        Properly formatted key
-    """
-    if cipher_type == "substitution":
-        # Convert list of tuples back to dictionary
-        return {k: v for k, v in key_data}
-    
-    elif cipher_type == "rsa":
-        # Convert list back to tuple
-        return tuple(key_data)
-    
-    else:
-        return key_data
+        return str(key)
 
 
 def send_message(socket, msg_type, data):

@@ -8,5 +8,10 @@
         "user_id": 2,
         "num_samples": 1,
         "registered_date": "2025-12-12 01:22:17"
+    },
+    "ayman": {
+        "user_id": 3,
+        "num_samples": 30,
+        "registered_date": "2025-12-15 13:12:28"
     }
 }

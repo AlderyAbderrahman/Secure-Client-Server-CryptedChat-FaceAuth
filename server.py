@@ -16,39 +16,6 @@ PORT = 5555
 # ============================================================================
 
 class ChatServer:
-    def handle_face_login(self, client_socket, data):
-        username = data.get("username")
-        
-        print(f"[FACE LOGIN] Attempting face login: {username}")
-        
-        # Use face-specific login method
-        success, message = self.auth.login_with_face(username)
-        
-        if success:
-            # Check if user already logged in
-            if username in self.clients.values():
-                send_message(client_socket, MessageType.ERROR, 
-                           {"message": "User already logged in"})
-                print(f"[FACE LOGIN] Failed: {username} already logged in")
-                return None
-            
-            # Add to clients list
-            self.clients[client_socket] = username
-            send_message(client_socket, MessageType.SUCCESS, {"message": message})
-            print(f"[FACE LOGIN] Success: {username}")
-            
-            # Send user list to new user
-            self.send_user_list(client_socket)
-            
-            # Broadcast updated user list to all
-            self.broadcast_user_list()
-            
-            return username
-        else:
-            send_message(client_socket, MessageType.ERROR, {"message": message})
-            print(f"[FACE LOGIN] Failed: {message}")
-            return None
-    
     def __init__(self, host=HOST, port=PORT):
         """Initialize the chat server"""
         self.host = host
@@ -69,10 +36,13 @@ class ChatServer:
             self.running = True
             
             print("=" * 60)
-            print("CHAT SERVER STARTED")
+            print("END-TO-END ENCRYPTED CHAT SERVER")
             print("=" * 60)
             print(f"Host: {self.host}")
             print(f"Port: {self.port}")
+            print("🔐 Server CANNOT see message keys or plaintext")
+            print("✓ True end-to-end encryption enabled")
+            print("=" * 60)
             print("Waiting for connections...")
             print("=" * 60)
             
@@ -125,6 +95,9 @@ class ChatServer:
                 elif msg_type == MessageType.LOGIN:
                     username = self.handle_login(client_socket, data)
                 
+                elif msg_type == MessageType.LOGIN_FACE:
+                    username = self.handle_face_login(client_socket, data)
+                
                 elif msg_type == MessageType.MESSAGE:
                     if username:
                         self.handle_message(client_socket, username, data)
@@ -138,10 +111,6 @@ class ChatServer:
                 
                 elif msg_type == MessageType.USER_LIST:
                     self.send_user_list(client_socket)
-
-                elif msg_type == MessageType.LOGIN_FACE:
-                     username = self.handle_face_login(client_socket, data)
-
                 
                 elif msg_type == MessageType.DISCONNECT:
                     break
@@ -197,14 +166,12 @@ class ChatServer:
                 print(f"[LOGIN] Failed: {username} already logged in")
                 return None
             
-            # Add to clients list FIRST
+            # Add to clients list
             self.clients[client_socket] = username
-            
-            # Send success message
             send_message(client_socket, MessageType.SUCCESS, {"message": message})
             print(f"[LOGIN] Success: {username}")
             
-            # Now broadcast updated user list to ALL clients (including the new one)
+            # Broadcast updated user list
             self.broadcast_user_list()
             
             return username
@@ -213,14 +180,45 @@ class ChatServer:
             print(f"[LOGIN] Failed: {message}")
             return None
     
+    def handle_face_login(self, client_socket, data):
+        """Handle face authentication login"""
+        username = data.get("username")
+        
+        print(f"[FACE LOGIN] Attempting face login: {username}")
+        
+        # Use face-specific login method
+        success, message = self.auth.login_with_face(username)
+        
+        if success:
+            # Check if user already logged in
+            if username in self.clients.values():
+                send_message(client_socket, MessageType.ERROR, 
+                           {"message": "User already logged in"})
+                print(f"[FACE LOGIN] Failed: {username} already logged in")
+                return None
+            
+            # Add to clients list
+            self.clients[client_socket] = username
+            send_message(client_socket, MessageType.SUCCESS, {"message": message})
+            print(f"[FACE LOGIN] Success: {username}")
+            
+            # Broadcast updated user list
+            self.broadcast_user_list()
+            
+            return username
+        else:
+            send_message(client_socket, MessageType.ERROR, {"message": message})
+            print(f"[FACE LOGIN] Failed: {message}")
+            return None
+    
     def handle_message(self, sender_socket, sender_username, data):
-        """Handle private message between users"""
+        """Handle private message - FORWARD ONLY ENCRYPTED CONTENT, NO KEYS"""
         recipient = data.get("to")
         cipher_type = data.get("cipher")
-        cipher_key = data.get("key")
         encrypted_content = data.get("content")
         
         print(f"[MESSAGE] {sender_username} → {recipient} (cipher: {cipher_type})")
+        print(f"[E2E] Server cannot see plaintext or key")
         
         # Find recipient socket
         recipient_socket = None
@@ -230,15 +228,14 @@ class ChatServer:
                 break
         
         if recipient_socket:
-            # Forward the encrypted message
+            # Forward ONLY encrypted content, NO KEY
             message_data = {
                 "from": sender_username,
                 "cipher": cipher_type,
-                "key": cipher_key,
                 "content": encrypted_content
             }
             send_message(recipient_socket, MessageType.MESSAGE, message_data)
-            print(f"[MESSAGE] Delivered to {recipient}")
+            print(f"[MESSAGE] Encrypted content delivered to {recipient}")
         else:
             # Recipient not found
             send_message(sender_socket, MessageType.ERROR, 
@@ -246,26 +243,27 @@ class ChatServer:
             print(f"[MESSAGE] Failed: {recipient} not found")
     
     def handle_broadcast(self, sender_socket, sender_username, data):
-        """Handle broadcast message to all users"""
+        """Handle broadcast message - FORWARD ONLY ENCRYPTED CONTENT, NO KEYS"""
         cipher_type = data.get("cipher")
-        cipher_key = data.get("key")
         encrypted_content = data.get("content")
         
         print(f"[BROADCAST] {sender_username} → ALL (cipher: {cipher_type})")
+        print(f"[E2E] Server cannot see plaintext or key")
         
-        # Send to all clients except sender
+        # Send to all clients except sender - ONLY encrypted content
         message_data = {
             "from": sender_username,
             "cipher": cipher_type,
-            "key": cipher_key,
             "content": encrypted_content
         }
         
+        recipients_count = 0
         for client_socket, username in self.clients.items():
             if client_socket != sender_socket:
                 send_message(client_socket, MessageType.BROADCAST, message_data)
+                recipients_count += 1
         
-        print(f"[BROADCAST] Sent to {len(self.clients) - 1} users")
+        print(f"[BROADCAST] Encrypted content delivered to {recipients_count} user(s)")
     
     def send_user_list(self, client_socket):
         """Send list of online users to a client"""

@@ -1,10 +1,10 @@
 import socket
 import threading
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, ttk, simpledialog
 from protocol import (
     MessageType, send_message, receive_message,
-    encrypt_message, decrypt_message, format_cipher_key, parse_cipher_key
+    encrypt_message, decrypt_message, format_cipher_key
 )
 from ciphers import generate_substitution_key, rsa_generate_keypair
 
@@ -41,10 +41,13 @@ class ChatClient:
         self.connected = False
         self.online_users = []
         
-        # Cipher keys storage
+        # Cipher keys storage (LOCAL ONLY - never transmitted)
         self.substitution_key = None
         self.rsa_public_key = None
         self.rsa_private_key = None
+        
+        # Pending encrypted messages waiting for decryption
+        self.pending_messages = []  # List of (sender, cipher, ciphertext)
         
         # Face authentication system
         if FACE_AUTH_AVAILABLE:
@@ -363,7 +366,7 @@ class ChatClient:
         self.chat_display.tag_config("received", foreground="#3498db")
         self.chat_display.tag_config("system", foreground="#95a5a6", font=("Arial", 9, "italic"))
         self.chat_display.tag_config("encrypted", foreground="#e74c3c")
-        self.chat_display.tag_config("debug", foreground="#e67e22", font=("Arial", 8, "italic"))
+        self.chat_display.tag_config("pending", foreground="#e67e22", font=("Arial", 9, "italic"))
         
         # ===== BOTTOM PANEL: Message Input =====
         bottom_panel = tk.Frame(right_panel, bg="#ecf0f1")
@@ -391,6 +394,13 @@ class ChatClient:
         self.key_entry.pack(side=tk.LEFT, padx=5)
         self.key_entry.insert(0, "3")  # Default Caesar shift
         
+        # Decrypt pending messages button
+        decrypt_btn = tk.Button(cipher_frame, text="🔓 Decrypt Messages", 
+                               font=("Arial", 9),
+                               bg="#9b59b6", fg="white",
+                               command=self.decrypt_pending_messages)
+        decrypt_btn.pack(side=tk.RIGHT, padx=5)
+        
         # Recipient selection
         recipient_frame = tk.Frame(bottom_panel, bg="#ecf0f1")
         recipient_frame.pack(fill=tk.X, pady=5)
@@ -417,9 +427,11 @@ class ChatClient:
         
         # Add welcome message
         self.add_system_message(f"Welcome, {self.username}! 🎉")
+        self.add_system_message("🔐 END-TO-END ENCRYPTION ENABLED")
+        self.add_system_message("⚠️  Share encryption keys with recipients in person!")
+        self.add_system_message("💡 Recipients must click '🔓 Decrypt Messages' and enter the key you share")
         if FACE_AUTH_AVAILABLE and self.username in self.face_auth.list_registered_faces():
             self.add_system_message("👤 Face authentication is registered for your account")
-        self.add_system_message("Select a user from the list or choose 'ALL' to broadcast.")
     
     def on_cipher_change(self, event=None):
         """Handle cipher selection change"""
@@ -441,6 +453,7 @@ class ChatClient:
             if not self.substitution_key:
                 self.substitution_key = generate_substitution_key()
                 self.add_system_message("💡 Substitution cipher: New random key generated")
+                self.add_system_message(f"🔑 Key (first 5): {format_cipher_key('substitution', self.substitution_key)}")
             self.key_entry.delete(0, tk.END)
             self.key_entry.insert(0, "AUTO")
             self.key_entry.config(state=tk.DISABLED)
@@ -457,7 +470,7 @@ class ChatClient:
                 self.root.update()
                 self.rsa_public_key, self.rsa_private_key = rsa_generate_keypair(bits=512)
                 self.add_system_message("✓ RSA keys generated successfully!")
-                self.add_system_message("⚠️  Note: For demo purposes, private key is shared with message")
+                self.add_system_message(f"🔑 Public key: {format_cipher_key('rsa', self.rsa_public_key)}")
             self.key_entry.delete(0, tk.END)
             self.key_entry.insert(0, "AUTO")
             self.key_entry.config(state=tk.DISABLED)
@@ -466,13 +479,6 @@ class ChatClient:
         """Add system message to chat"""
         self.chat_display.config(state=tk.NORMAL)
         self.chat_display.insert(tk.END, f"[SYSTEM] {message}\n", "system")
-        self.chat_display.see(tk.END)
-        self.chat_display.config(state=tk.DISABLED)
-    
-    def add_debug_message(self, message):
-        """Add debug message to chat"""
-        self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.insert(tk.END, f"[DEBUG] {message}\n", "debug")
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
     
@@ -492,10 +498,10 @@ class ChatClient:
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
     
-    def add_received_message(self, sender, plaintext, ciphertext, cipher):
-        """Add received message to chat"""
+    def add_pending_encrypted_message(self, sender, cipher, ciphertext):
+        """Add encrypted message that needs decryption"""
         self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.insert(tk.END, f"{sender} → You ({cipher}):\n", "received")
+        self.chat_display.insert(tk.END, f"🔒 ENCRYPTED from {sender} ({cipher}):\n", "pending")
         
         # Format ciphertext display
         if isinstance(ciphertext, list):
@@ -503,13 +509,21 @@ class ChatClient:
         else:
             display_cipher = ciphertext
         
-        self.chat_display.insert(tk.END, f"  Encrypted: {display_cipher}\n", "encrypted")
-        self.chat_display.insert(tk.END, f"  Decrypted: {plaintext}\n\n", "received")
+        self.chat_display.insert(tk.END, f"  {display_cipher}\n", "encrypted")
+        self.chat_display.insert(tk.END, f"  ⚠️  Click '🔓 Decrypt Messages' and enter the key from {sender}\n\n", "pending")
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+    
+    def add_decrypted_message(self, sender, plaintext, cipher):
+        """Add successfully decrypted message"""
+        self.chat_display.config(state=tk.NORMAL)
+        self.chat_display.insert(tk.END, f"✓ {sender} → You ({cipher}):\n", "received")
+        self.chat_display.insert(tk.END, f"  {plaintext}\n\n", "received")
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
     
     def send_message(self):
-        """Send encrypted message"""
+        """Send encrypted message WITHOUT KEY"""
         plaintext = self.message_entry.get().strip()
         
         if not plaintext:
@@ -518,7 +532,7 @@ class ChatClient:
         recipient = self.recipient_var.get()
         cipher_type = self.cipher_var.get()
         
-        # Get the appropriate key
+        # Get the appropriate key (LOCAL ONLY)
         if cipher_type == "substitution":
             key = self.substitution_key
         elif cipher_type == "rsa":
@@ -531,47 +545,95 @@ class ChatClient:
         
         try:
             # Encrypt the message
-            self.add_debug_message(f"Encrypting with {cipher_type}...")
             ciphertext = encrypt_message(plaintext, cipher_type, key)
-            self.add_debug_message(f"Encryption complete. Ciphertext type: {type(ciphertext)}")
             
-            # Format key for transmission
-            # For RSA, send BOTH public and private keys (for demo purposes)
-            if cipher_type == "rsa":
-                formatted_key = {
-                    "public": format_cipher_key(cipher_type, self.rsa_public_key),
-                    "private": format_cipher_key(cipher_type, self.rsa_private_key)
-                }
-                self.add_debug_message("Sending RSA keys with message...")
-            else:
-                formatted_key = format_cipher_key(cipher_type, key)
-            
-            # Send to server
+            # Send to server WITHOUT KEY - only encrypted content
             if recipient == "ALL":
                 send_message(self.socket, MessageType.BROADCAST, {
                     "cipher": cipher_type,
-                    "key": formatted_key,
                     "content": ciphertext
                 })
             else:
                 send_message(self.socket, MessageType.MESSAGE, {
                     "to": recipient,
                     "cipher": cipher_type,
-                    "key": formatted_key,
                     "content": ciphertext
                 })
             
-            self.add_debug_message("Message sent to server successfully")
-            
             # Display in chat
             self.add_sent_message(recipient, plaintext, ciphertext, cipher_type)
+            self.add_system_message(f"💡 Tell {recipient} the key: {key if cipher_type not in ['substitution', 'rsa'] else 'Share securely!'}")
             
             # Clear input
             self.message_entry.delete(0, tk.END)
             
         except Exception as e:
-            self.add_debug_message(f"Error: {str(e)}")
             messagebox.showerror("Encryption Error", f"Failed to encrypt message:\n{e}")
+    
+    def decrypt_pending_messages(self):
+        """Prompt user to enter key and decrypt pending messages"""
+        if not self.pending_messages:
+            messagebox.showinfo("No Messages", "No encrypted messages waiting for decryption")
+            return
+        
+        # Show dialog to enter decryption key
+        key_dialog = tk.Toplevel(self.root)
+        key_dialog.title("Decrypt Messages")
+        key_dialog.geometry("400x300")
+        key_dialog.configure(bg="#34495e")
+        
+        tk.Label(key_dialog, text="Enter Decryption Key", font=("Arial", 14, "bold"),
+                bg="#34495e", fg="white").pack(pady=20)
+        
+        tk.Label(key_dialog, text=f"{len(self.pending_messages)} encrypted message(s) waiting",
+                font=("Arial", 10), bg="#34495e", fg="#95a5a6").pack(pady=5)
+        
+        tk.Label(key_dialog, text="Key:", font=("Arial", 11),
+                bg="#34495e", fg="white").pack(pady=10)
+        
+        key_entry = tk.Entry(key_dialog, font=("Arial", 12), width=25)
+        key_entry.pack(pady=10)
+        key_entry.focus()
+        
+        result_label = tk.Label(key_dialog, text="", font=("Arial", 9),
+                               bg="#34495e", fg="#e74c3c", wraplength=350)
+        result_label.pack(pady=10)
+        
+        def try_decrypt():
+            key = key_entry.get().strip()
+            if not key:
+                result_label.config(text="Please enter a key", fg="#e74c3c")
+                return
+            
+            decrypted_count = 0
+            failed_count = 0
+            remaining = []
+            
+            for sender, cipher_type, ciphertext in self.pending_messages:
+                try:
+                    plaintext = decrypt_message(ciphertext, cipher_type, key)
+                    self.add_decrypted_message(sender, plaintext, cipher_type)
+                    decrypted_count += 1
+                except:
+                    remaining.append((sender, cipher_type, ciphertext))
+                    failed_count += 1
+            
+            self.pending_messages = remaining
+            
+            if decrypted_count > 0:
+                result_label.config(text=f"✓ Decrypted {decrypted_count} message(s)!", fg="#27ae60")
+                if failed_count == 0:
+                    key_dialog.after(1500, key_dialog.destroy)
+            else:
+                result_label.config(text="❌ Wrong key or incompatible cipher", fg="#e74c3c")
+        
+        tk.Button(key_dialog, text="🔓 Decrypt", font=("Arial", 11, "bold"),
+                 bg="#27ae60", fg="white", command=try_decrypt).pack(pady=10)
+        
+        tk.Button(key_dialog, text="Cancel", font=("Arial", 10),
+                 bg="#95a5a6", fg="white", command=key_dialog.destroy).pack(pady=5)
+        
+        key_entry.bind('<Return>', lambda e: try_decrypt())
     
     # ========================================================================
     # RECEIVE MESSAGES
@@ -628,56 +690,22 @@ class ChatClient:
         messagebox.showerror("Error", error_message)
     
     def handle_incoming_message(self, data):
-        """Handle incoming private message"""
+        """Handle incoming private message - NO KEY, JUST ENCRYPTED CONTENT"""
         sender = data.get("from")
         cipher_type = data.get("cipher")
-        cipher_key_data = data.get("key")
         ciphertext = data.get("content")
         
-        self.root.after(0, lambda: self.add_debug_message(f"Received {cipher_type} message from {sender}"))
+        # Store as pending (waiting for user to enter key)
+        self.pending_messages.append((sender, cipher_type, ciphertext))
         
-        try:
-            # For RSA, extract the private key from the message
-            if cipher_type == "rsa":
-                self.root.after(0, lambda: self.add_debug_message(f"RSA key data type: {type(cipher_key_data)}"))
-                # The key data contains both public and private keys
-                if isinstance(cipher_key_data, dict):
-                    private_key_data = cipher_key_data.get("private")
-                    if private_key_data:
-                        cipher_key = parse_cipher_key(cipher_type, private_key_data)
-                        self.root.after(0, lambda: self.add_debug_message(f"Using sender's private key for decryption"))
-                    else:
-                        raise ValueError("No private key in RSA message")
-                else:
-                    # Fallback to own private key (shouldn't happen with fix)
-                    cipher_key = self.rsa_private_key
-                    if not cipher_key:
-                        raise ValueError("No RSA private key available")
-                    self.root.after(0, lambda: self.add_debug_message("Using own private key (fallback)"))
-            else:
-                # Parse the key for other cipher types
-                cipher_key = parse_cipher_key(cipher_type, cipher_key_data)
-            
-            self.root.after(0, lambda: self.add_debug_message("Decrypting message..."))
-            
-            # Decrypt the message
-            plaintext = decrypt_message(ciphertext, cipher_type, cipher_key)
-            
-            self.root.after(0, lambda: self.add_debug_message(f"Decryption successful: {plaintext[:20]}..."))
-            
-            # Display in chat
-            self.root.after(0, lambda: self.add_received_message(
-                sender, plaintext, ciphertext, cipher_type
-            ))
-            
-        except Exception as e:
-            error_msg = f"Failed to decrypt message from {sender}: {str(e)}"
-            print(f"[CLIENT ERROR] {error_msg}")
-            self.root.after(0, lambda: self.add_system_message(f"❌ {error_msg}"))
+        # Show in chat as encrypted
+        self.root.after(0, lambda: self.add_pending_encrypted_message(
+            sender, cipher_type, ciphertext
+        ))
     
     def handle_incoming_broadcast(self, data):
         """Handle incoming broadcast message"""
-        # Same as private message, just different source
+        # Same as private message
         self.handle_incoming_message(data)
     
     def handle_user_list(self, data):
@@ -714,13 +742,16 @@ class ChatClient:
 
 def main():
     """Main function to start the client"""
-root = tk.Tk()
-client = ChatClient(root)
+    root = tk.Tk()
+    client = ChatClient(root)
+    
+    # Handle window close
+    def on_closing():
+        client.disconnect()
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    root.mainloop()
 
-# Handle window close
-def on_closing():
-    client.disconnect()
-    root.destroy()
-
-root.protocol("WM_DELETE_WINDOW", on_closing)
-root.mainloop()
+if __name__ == "__main__":
+    main()
